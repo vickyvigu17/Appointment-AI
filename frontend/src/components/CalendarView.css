@@ -1,0 +1,103 @@
+.calendar-view h3 {
+  margin-bottom: 1rem;
+  color: #333;
+}
+
+.slots-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.slot {
+  padding: 0.75rem;
+  border-radius: 8px;
+  text-align: center;
+  cursor: pointer;
+  transition: transform 0.2s;
+  border: 2px solid transparent;
+}
+
+.slot:hover {
+  transform: scale(1.05);
+}
+
+.slot.available {
+  background: #d4edda;
+  border-color: #c3e6cb;
+  color: #155724;
+}
+
+.slot.booked {
+  background: #fff3cd;
+  border-color: #ffeaa7;
+  color: #856404;
+}
+
+.slot.full {
+  background: #f8d7da;
+  border-color: #f5c6cb;
+  color: #721c24;
+}
+
+.slot.blocked {
+  background: #d1d3d4;
+  border-color: #adb5bd;
+  color: #495057;
+  cursor: not-allowed;
+}
+
+.slot-hour {
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.slot-status {
+  font-size: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #e0e0e0;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.legend-color {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+}
+
+.legend-color.available {
+  background: #d4edda;
+}
+
+.legend-color.booked {
+  background: #fff3cd;
+}
+
+.legend-color.full {
+  background: #f8d7da;
+}
+
+.legend-color.blocked {
+  background: #d1d3d4;
+}
+
+.loading {
+  text-align: center;
+  padding: 2rem;
+  color: #666;
+}
+
