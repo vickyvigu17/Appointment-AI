@@ -18,6 +18,31 @@ function getSupabaseClient() {
   return supabase;
 }
 
+function generateTrackingCode() {
+  return Math.floor(1000000 + Math.random() * 9000000).toString();
+}
+
+async function generateUniqueTrackingCode(client, maxAttempts = 5) {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const code = generateTrackingCode();
+    const { data, error } = await client
+      .from('appointments')
+      .select('id')
+      .eq('tracking_code', code)
+      .limit(1);
+
+    if (error) {
+      throw error;
+    }
+
+    if (!data || data.length === 0) {
+      return code;
+    }
+  }
+
+  throw new Error('Failed to generate a unique appointment ID. Please try again.');
+}
+
 export async function getSlotsForDate(date) {
   const client = getSupabaseClient();
   // Get all appointments for the date
@@ -72,7 +97,11 @@ export async function getSlotsForDate(date) {
 }
 
 export async function createAppointment(appointmentData) {
-  const { date, hour, type, vendor_name, vendor_email } = appointmentData;
+  const { date, hour, type, vendor_name, vendor_email, carrier_name } = appointmentData;
+
+  if (!carrier_name) {
+    throw new Error('Carrier name is required to create an appointment');
+  }
 
   // Validate past date
   if (isPastDate(date, hour)) {
@@ -98,6 +127,7 @@ export async function createAppointment(appointmentData) {
 
   // Create appointment
   const client = getSupabaseClient();
+  const trackingCode = await generateUniqueTrackingCode(client);
   const { data, error } = await client
     .from('appointments')
     .insert({
@@ -105,7 +135,9 @@ export async function createAppointment(appointmentData) {
       hour,
       type,
       vendor_name,
-      vendor_email
+      vendor_email,
+      carrier_name,
+      tracking_code: trackingCode
     })
     .select()
     .single();
@@ -178,6 +210,42 @@ export async function deleteAppointment(id) {
   if (error) throw error;
   if (!data) throw new Error('Appointment not found');
   return data;
+}
+
+export async function getAppointmentByTrackingCode(trackingCode) {
+  if (!trackingCode) {
+    throw new Error('Tracking code is required');
+  }
+
+  const client = getSupabaseClient();
+  const { data, error } = await client
+    .from('appointments')
+    .select('*')
+    .eq('tracking_code', trackingCode)
+    .limit(1);
+
+  if (error) throw error;
+  return data?.[0] || null;
+}
+
+export async function updateAppointmentByTrackingCode(trackingCode, newDate, newHour) {
+  const appointment = await getAppointmentByTrackingCode(trackingCode);
+
+  if (!appointment) {
+    throw new Error('Appointment not found for the provided tracking code');
+  }
+
+  return updateAppointment(appointment.id, newDate, newHour);
+}
+
+export async function deleteAppointmentByTrackingCode(trackingCode) {
+  const appointment = await getAppointmentByTrackingCode(trackingCode);
+
+  if (!appointment) {
+    throw new Error('Appointment not found for the provided tracking code');
+  }
+
+  return deleteAppointment(appointment.id);
 }
 
 export async function findNextAvailableSlot(date, hour, type) {

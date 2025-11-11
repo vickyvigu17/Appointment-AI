@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import appointmentRoutes from './routes/appointments.js';
 import slotRoutes from './routes/slots.js';
+import integrationRoutes from './routes/integrations.js';
 
 dotenv.config();
 
@@ -15,6 +16,7 @@ app.use(express.json());
 // Routes
 app.use('/api/appointments', appointmentRoutes);
 app.use('/api/slots', slotRoutes);
+app.use('/api/integrations', integrationRoutes);
 
 app.get('/', (req, res) => {
   res.json({

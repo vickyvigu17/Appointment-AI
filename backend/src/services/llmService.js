@@ -68,9 +68,12 @@ When user provides a request:
      "type": "live" | "drop",
      "vendor_name": "string",
      "vendor_email": "string",
+     "carrier_name": "string",
      "appointment_id": "uuid (for update/delete)",
      "query_type": "my_appointments" | "availability" (for query action)
    }
+
+Always confirm the carrier name (e.g., "MKTTC") before finalizing booking, update, or cancel actions.
 
 2. If the request is ambiguous or missing information, ask a clarifying question in natural language.
 
@@ -105,7 +108,7 @@ function getFewShotExamples(currentTime = getISTDate()) {
   return [
     {
       role: 'user',
-      content: `Vendor Info: Name: ABC Logistics, Email: abc@example.com\n\nUser Request: Book a live appointment tomorrow at 8 AM`
+      content: `Vendor Info: Name: ABC Logistics, Email: abc@example.com, Carrier: ABC Carrier\n\nUser Request: Book a live appointment tomorrow at 8 AM`
     },
     {
       role: 'assistant',
@@ -115,12 +118,13 @@ function getFewShotExamples(currentTime = getISTDate()) {
         hour: 8,
         type: 'live',
         vendor_name: 'ABC Logistics',
-        vendor_email: 'abc@example.com'
+        vendor_email: 'abc@example.com',
+        carrier_name: 'ABC Carrier'
       })
     },
     {
       role: 'user',
-      content: `Vendor Info: Name: RGH, Email: rghteam@abc.com\n\nUser Request: Schedule a drop at 3 PM on Friday`
+      content: `Vendor Info: Name: RGH, Email: rghteam@abc.com, Carrier: RGH Carrier\n\nUser Request: Schedule a drop at 3 PM on Friday`
     },
     {
       role: 'assistant',
@@ -130,12 +134,13 @@ function getFewShotExamples(currentTime = getISTDate()) {
         hour: 15,
         type: 'drop',
         vendor_name: 'RGH',
-        vendor_email: 'rghteam@abc.com'
+        vendor_email: 'rghteam@abc.com',
+        carrier_name: 'RGH Carrier'
       })
     },
     {
       role: 'user',
-      content: `Vendor Info: Name: ABC Logistics, Email: abc@example.com\n\nUser Request: Reschedule my live appointment to 5 PM the day after tomorrow`
+      content: `Vendor Info: Name: ABC Logistics, Email: abc@example.com, Carrier: ABC Carrier\n\nUser Request: Reschedule my live appointment to 5 PM the day after tomorrow`
     },
     {
       role: 'assistant',
@@ -145,12 +150,13 @@ function getFewShotExamples(currentTime = getISTDate()) {
         hour: 17,
         type: 'live',
         vendor_name: 'ABC Logistics',
-        vendor_email: 'abc@example.com'
+        vendor_email: 'abc@example.com',
+        carrier_name: 'ABC Carrier'
       })
     },
     {
       role: 'user',
-      content: `Vendor Info: Name: ABC Logistics, Email: abc@example.com\n\nUser Request: Cancel my drop appointment tomorrow at 9 PM`
+      content: `Vendor Info: Name: ABC Logistics, Email: abc@example.com, Carrier: ABC Carrier\n\nUser Request: Cancel my drop appointment tomorrow at 9 PM`
     },
     {
       role: 'assistant',
@@ -160,12 +166,13 @@ function getFewShotExamples(currentTime = getISTDate()) {
         hour: 21,
         type: 'drop',
         vendor_name: 'ABC Logistics',
-        vendor_email: 'abc@example.com'
+        vendor_email: 'abc@example.com',
+        carrier_name: 'ABC Carrier'
       })
     },
     {
       role: 'user',
-      content: `Vendor Info: Name: ABC Logistics, Email: abc@example.com\n\nUser Request: Show my appointments`
+      content: `Vendor Info: Name: ABC Logistics, Email: abc@example.com, Carrier: ABC Carrier\n\nUser Request: Show my appointments`
     },
     {
       role: 'assistant',
@@ -173,12 +180,13 @@ function getFewShotExamples(currentTime = getISTDate()) {
         action: 'query',
         query_type: 'my_appointments',
         vendor_name: 'ABC Logistics',
-        vendor_email: 'abc@example.com'
+        vendor_email: 'abc@example.com',
+        carrier_name: 'ABC Carrier'
       })
     },
     {
       role: 'user',
-      content: `Vendor Info: Name: ABC Logistics, Email: abc@example.com\n\nUser Request: Show all appointments made by me`
+      content: `Vendor Info: Name: ABC Logistics, Email: abc@example.com, Carrier: ABC Carrier\n\nUser Request: Show all appointments made by me`
     },
     {
       role: 'assistant',
@@ -186,12 +194,13 @@ function getFewShotExamples(currentTime = getISTDate()) {
         action: 'query',
         query_type: 'my_appointments',
         vendor_name: 'ABC Logistics',
-        vendor_email: 'abc@example.com'
+        vendor_email: 'abc@example.com',
+        carrier_name: 'ABC Carrier'
       })
     },
     {
       role: 'user',
-      content: `Vendor Info: Name: ABC Logistics, Email: abc@example.com\n\nUser Request: Book a live appointment tomorrow evening`
+      content: `Vendor Info: Name: ABC Logistics, Email: abc@example.com, Carrier: ABC Carrier\n\nUser Request: Book a live appointment tomorrow evening`
     },
     {
       role: 'assistant',
@@ -214,7 +223,8 @@ async function executeAction(intent, vendorInfo) {
           hour: intent.hour,
           type: intent.type,
           vendor_name: vendorInfo.name,
-          vendor_email: vendorInfo.email
+          vendor_email: vendorInfo.email,
+          carrier_name: intent.carrier_name || vendorInfo.carrier_name
         });
         message = `✅ Successfully booked a ${intent.type} appointment on ${formatDateForDisplay(intent.date)} at ${intent.hour}:00 IST.`;
         break;
@@ -596,7 +606,7 @@ export async function processUserMessage(userMessage, conversationHistory, vendo
     ...conversationHistory,
     {
       role: 'user',
-      content: `Vendor Info: Name: ${vendorInfo.name}, Email: ${vendorInfo.email}\n\nUser Request: ${userMessage}`
+      content: `Vendor Info: Name: ${vendorInfo.name}, Email: ${vendorInfo.email}, Carrier: ${vendorInfo.carrier_name || 'N/A'}\n\nUser Request: ${userMessage}`
     }
   ];
 
