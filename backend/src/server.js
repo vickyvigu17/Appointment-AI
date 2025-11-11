@@ -16,6 +16,17 @@ app.use(express.json());
 app.use('/api/appointments', appointmentRoutes);
 app.use('/api/slots', slotRoutes);
 
+app.get('/', (req, res) => {
+  res.json({
+    message: 'Appointment Booking API is running',
+    endpoints: {
+      health: '/health',
+      appointments: '/api/appointments',
+      slots: '/api/slots',
+    },
+  });
+});
+
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -24,4 +35,5 @@ app.get('/health', (req, res) => {
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
 });
+
 
