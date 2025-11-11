@@ -1,3 +1,8 @@
+-- ============================================
+-- QUICK START: Copy and paste this entire file
+-- into Supabase SQL Editor and click "Run"
+-- ============================================
+
 -- Create enum type for appointment types
 CREATE TYPE appointment_type AS ENUM ('live', 'drop');
 
@@ -38,6 +43,10 @@ CREATE POLICY "Allow all operations on appointments" ON appointments
 
 CREATE POLICY "Allow all operations on blocked_slots" ON blocked_slots
     FOR ALL USING (true) WITH CHECK (true);
+
+-- ============================================
+-- ✅ Done! Your tables are ready.
+-- ============================================
 
 
 

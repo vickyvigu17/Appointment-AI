@@ -1,14 +1,27 @@
 import { createClient } from '@supabase/supabase-js';
 import { isPastDate } from '../utils/dateUtils.js';
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_KEY
-);
+// Lazy initialization of Supabase client
+let supabase = null;
+
+function getSupabaseClient() {
+  if (!supabase) {
+    const url = process.env.SUPABASE_URL;
+    const key = process.env.SUPABASE_KEY;
+    
+    if (!url || !key) {
+      throw new Error('Supabase URL and Key must be set in environment variables');
+    }
+    
+    supabase = createClient(url, key);
+  }
+  return supabase;
+}
 
 export async function getSlotsForDate(date) {
+  const client = getSupabaseClient();
   // Get all appointments for the date
-  const { data: appointments, error: apptError } = await supabase
+  const { data: appointments, error: apptError } = await client
     .from('appointments')
     .select('hour, type')
     .eq('date', date);
@@ -16,7 +29,7 @@ export async function getSlotsForDate(date) {
   if (apptError) throw apptError;
 
   // Get blocked slots
-  const { data: blockedSlots, error: blockedError } = await supabase
+  const { data: blockedSlots, error: blockedError } = await client
     .from('blocked_slots')
     .select('hour, reason')
     .eq('date', date);
@@ -84,7 +97,8 @@ export async function createAppointment(appointmentData) {
   }
 
   // Create appointment
-  const { data, error } = await supabase
+  const client = getSupabaseClient();
+  const { data, error } = await client
     .from('appointments')
     .insert({
       date,
@@ -108,7 +122,8 @@ export async function createAppointment(appointmentData) {
 
 export async function updateAppointment(id, newDate, newHour) {
   // Get existing appointment
-  const { data: existing, error: fetchError } = await supabase
+  const client = getSupabaseClient();
+  const { data: existing, error: fetchError } = await client
     .from('appointments')
     .select('*')
     .eq('id', id)
@@ -140,7 +155,7 @@ export async function updateAppointment(id, newDate, newHour) {
   }
 
   // Update appointment
-  const { data, error } = await supabase
+  const { data, error } = await client
     .from('appointments')
     .update({ date: newDate, hour: newHour })
     .eq('id', id)
@@ -152,7 +167,8 @@ export async function updateAppointment(id, newDate, newHour) {
 }
 
 export async function deleteAppointment(id) {
-  const { data, error } = await supabase
+  const client = getSupabaseClient();
+  const { data, error } = await client
     .from('appointments')
     .delete()
     .eq('id', id)
@@ -184,7 +200,8 @@ export async function findNextAvailableSlot(date, hour, type) {
 }
 
 export async function getUserAppointments(vendor_email) {
-  const { data, error } = await supabase
+  const client = getSupabaseClient();
+  const { data, error } = await client
     .from('appointments')
     .select('*')
     .eq('vendor_email', vendor_email)

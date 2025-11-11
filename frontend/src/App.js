@@ -11,7 +11,7 @@ function App() {
 
   const handleVendorInfoUpdate = (info) => {
     if (info.name && info.email) {
-      setVendorInfo(info);
+      setVendorInfo({ name: info.name, email: info.email });
     } else {
       setVendorInfo(prev => ({ ...prev, ...info }));
     }
@@ -31,6 +31,7 @@ function App() {
         <div className="chat-section">
           <ChatInterface
             vendorInfo={vendorInfo}
+            onVendorInfoUpdate={handleVendorInfoUpdate}
             onAppointmentUpdate={handleAppointmentUpdate}
           />
         </div>

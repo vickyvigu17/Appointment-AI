@@ -3,7 +3,7 @@ import { api } from '../services/api';
 import MessageBubble from './MessageBubble';
 import './ChatInterface.css';
 
-function ChatInterface({ vendorInfo, onAppointmentUpdate }) {
+function ChatInterface({ vendorInfo, onVendorInfoUpdate, onAppointmentUpdate }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -33,15 +33,38 @@ function ChatInterface({ vendorInfo, onAppointmentUpdate }) {
     if (!input.trim() || loading) return;
 
     if (!vendorInfo.name || !vendorInfo.email) {
-      // Extract vendor info from message
-      const emailMatch = input.match(/[\w\.-]+@[\w\.-]+\.\w+/);
-      const nameMatch = input.match(/(?:name|i am|i'm)\s+([A-Za-z\s]+)/i);
+      // Extract vendor info from message - more flexible patterns
+      const emailMatch = input.match(/[\w.-]+@[\w.-]+\.[\w]+/);
       
-      if (emailMatch && nameMatch) {
-        onAppointmentUpdate({
-          name: nameMatch[1].trim(),
+      // Try multiple name patterns
+      let nameMatch = input.match(/(?:name is|i am|i'm|my name is)\s+([A-Za-z\s]+?)(?:\s+and|\s+email|$)/i);
+      if (!nameMatch) {
+        nameMatch = input.match(/(?:name:)\s*([A-Za-z\s]+?)(?:\s+email|$)/i);
+      }
+      if (!nameMatch) {
+        // Try to extract name before email
+        const beforeEmail = input.split('@')[0];
+        if (beforeEmail) {
+          const parts = beforeEmail.match(/([A-Za-z\s]+)/);
+          if (parts) nameMatch = [null, parts[1].trim()];
+        }
+      }
+      
+      if (emailMatch) {
+        const name = nameMatch ? nameMatch[1].trim() : 'User';
+        onVendorInfoUpdate({
+          name: name,
           email: emailMatch[0]
         });
+        setMessages(prev => [...prev, {
+          type: 'user',
+          text: input,
+          timestamp: new Date()
+        }, {
+          type: 'system',
+          text: `✅ Welcome ${name}! How can I help you book, reschedule, or cancel an appointment?`,
+          timestamp: new Date()
+        }]);
         setInput('');
         return;
       } else {

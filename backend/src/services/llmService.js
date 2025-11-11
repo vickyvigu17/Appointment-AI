@@ -1,14 +1,50 @@
 import OpenAI from 'openai';
+import { Langfuse } from 'langfuse';
+import { addDays } from 'date-fns';
 import { getISTDate, getDateString, formatDateForDisplay } from '../utils/dateUtils.js';
 import * as appointmentService from './appointmentService.js';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
-});
+// Lazy initialization of OpenAI client
+let openai = null;
+let langfuseInstance;
+
+function getOpenAIClient() {
+  if (!openai) {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      throw new Error('OPENAI_API_KEY must be set in environment variables');
+    }
+    openai = new OpenAI({
+      apiKey: apiKey
+    });
+  }
+  return openai;
+}
+
+function getLangfuseClient() {
+  if (typeof langfuseInstance === 'undefined') {
+    const secretKey = process.env.LANGFUSE_SECRET_KEY;
+    const publicKey = process.env.LANGFUSE_PUBLIC_KEY;
+
+    if (secretKey && publicKey) {
+      langfuseInstance = new Langfuse({
+        secretKey,
+        publicKey,
+        baseUrl: process.env.LANGFUSE_BASE_URL,
+        release: process.env.LANGFUSE_RELEASE || process.env.npm_package_version,
+        environment: process.env.NODE_ENV || 'development'
+      });
+    } else {
+      langfuseInstance = null;
+    }
+  }
+
+  return langfuseInstance;
+}
 
 // System prompt for LLM
-function getSystemPrompt() {
-  const now = getISTDate();
+function getSystemPrompt(currentTime = getISTDate()) {
+  const now = currentTime;
   return `You are an AI assistant for a Distribution Center (DC) appointment booking system.
 
 Your role:
@@ -54,60 +90,116 @@ When user provides a request:
 IMPORTANT: Only respond with JSON when you have ALL required fields. Otherwise, ask clarifying questions.`;
 }
 
-export async function processUserMessage(userMessage, conversationHistory, vendorInfo) {
-  const messages = [
-    { role: 'system', content: getSystemPrompt() },
-    ...conversationHistory,
-    { 
-      role: 'user', 
-      content: `Vendor Info: Name: ${vendorInfo.name}, Email: ${vendorInfo.email}\n\nUser Request: ${userMessage}` 
+function getFewShotExamples(currentTime = getISTDate()) {
+  const now = currentTime;
+  const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  const inTwoDays = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000);
+  const upcomingFriday = (() => {
+    const date = new Date(now);
+    const day = date.getDay();
+    const diff = (5 - day + 7) % 7 || 7;
+    date.setDate(date.getDate() + diff);
+    return date;
+  })();
+
+  return [
+    {
+      role: 'user',
+      content: `Vendor Info: Name: ABC Logistics, Email: abc@example.com\n\nUser Request: Book a live appointment tomorrow at 8 AM`
+    },
+    {
+      role: 'assistant',
+      content: JSON.stringify({
+        action: 'create',
+        date: getDateString(tomorrow),
+        hour: 8,
+        type: 'live',
+        vendor_name: 'ABC Logistics',
+        vendor_email: 'abc@example.com'
+      })
+    },
+    {
+      role: 'user',
+      content: `Vendor Info: Name: RGH, Email: rghteam@abc.com\n\nUser Request: Schedule a drop at 3 PM on Friday`
+    },
+    {
+      role: 'assistant',
+      content: JSON.stringify({
+        action: 'create',
+        date: getDateString(upcomingFriday),
+        hour: 15,
+        type: 'drop',
+        vendor_name: 'RGH',
+        vendor_email: 'rghteam@abc.com'
+      })
+    },
+    {
+      role: 'user',
+      content: `Vendor Info: Name: ABC Logistics, Email: abc@example.com\n\nUser Request: Reschedule my live appointment to 5 PM the day after tomorrow`
+    },
+    {
+      role: 'assistant',
+      content: JSON.stringify({
+        action: 'update',
+        date: getDateString(inTwoDays),
+        hour: 17,
+        type: 'live',
+        vendor_name: 'ABC Logistics',
+        vendor_email: 'abc@example.com'
+      })
+    },
+    {
+      role: 'user',
+      content: `Vendor Info: Name: ABC Logistics, Email: abc@example.com\n\nUser Request: Cancel my drop appointment tomorrow at 9 PM`
+    },
+    {
+      role: 'assistant',
+      content: JSON.stringify({
+        action: 'delete',
+        date: getDateString(tomorrow),
+        hour: 21,
+        type: 'drop',
+        vendor_name: 'ABC Logistics',
+        vendor_email: 'abc@example.com'
+      })
+    },
+    {
+      role: 'user',
+      content: `Vendor Info: Name: ABC Logistics, Email: abc@example.com\n\nUser Request: Show my appointments`
+    },
+    {
+      role: 'assistant',
+      content: JSON.stringify({
+        action: 'query',
+        query_type: 'my_appointments',
+        vendor_name: 'ABC Logistics',
+        vendor_email: 'abc@example.com'
+      })
+    },
+    {
+      role: 'user',
+      content: `Vendor Info: Name: ABC Logistics, Email: abc@example.com\n\nUser Request: Show all appointments made by me`
+    },
+    {
+      role: 'assistant',
+      content: JSON.stringify({
+        action: 'query',
+        query_type: 'my_appointments',
+        vendor_name: 'ABC Logistics',
+        vendor_email: 'abc@example.com'
+      })
+    },
+    {
+      role: 'user',
+      content: `Vendor Info: Name: ABC Logistics, Email: abc@example.com\n\nUser Request: Book a live appointment tomorrow evening`
+    },
+    {
+      role: 'assistant',
+      content: JSON.stringify({
+        message: 'Evening is ambiguous. Please specify the hour (0-23).'
+      })
     }
   ];
-
-  try {
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4', // or 'gpt-3.5-turbo' for faster/cheaper
-      messages: messages,
-      temperature: 0.3, // Lower temperature for more consistent structured output
-      response_format: { type: 'json_object' } // Force JSON response
-    });
-
-    const response = completion.choices[0].message.content;
-    let parsedResponse;
-
-    try {
-      parsedResponse = JSON.parse(response);
-    } catch (e) {
-      // If JSON parsing fails, treat as natural language response
-      return {
-        type: 'clarification',
-        message: response
-      };
-    }
-
-    // Check if it's a clarification question (no action field or action is not valid)
-    if (!parsedResponse.action || !['create', 'update', 'delete', 'query'].includes(parsedResponse.action)) {
-      return {
-        type: 'clarification',
-        message: response
-      };
-    }
-
-    // If action is query, handle it differently
-    if (parsedResponse.action === 'query') {
-      return await handleQueryAction(parsedResponse, vendorInfo);
-    }
-
-    // Execute the action
-    return await executeAction(parsedResponse, vendorInfo);
-
-  } catch (error) {
-    console.error('LLM Error:', error);
-    return {
-      type: 'error',
-      message: 'I encountered an error processing your request. Please try again.'
-    };
-  }
 }
 
 async function executeAction(intent, vendorInfo) {
@@ -275,3 +367,375 @@ export function logLLMInteraction(userMessage, intent, response, executionResult
   // In production, save to database for analysis
 }
 
+function detectAction(message) {
+  const lower = message.toLowerCase();
+  if (lower.includes('cancel')) return 'delete';
+  if (
+    lower.includes('resched') ||
+    lower.includes('move') ||
+    lower.includes('change') ||
+    lower.includes('shift')
+  ) {
+    return 'update';
+  }
+  if (
+    lower.includes('availability') ||
+    lower.includes('available slot') ||
+    lower.includes('free slot') ||
+    lower.includes('open slot')
+  ) {
+    return 'query_availability';
+  }
+  if (
+    lower.includes('my appointments') ||
+    lower.includes('what appointments') ||
+    lower.includes('upcoming appointments') ||
+    lower.includes('appointments made by me') ||
+    lower.includes('appointments i made')
+  ) {
+    return 'query_my';
+  }
+  if (
+    lower.includes('book') ||
+    lower.includes('schedule') ||
+    lower.includes('need an appointment') ||
+    lower.includes('create an appointment')
+  ) {
+    return 'create';
+  }
+  return null;
+}
+
+function parseAppointmentType(message) {
+  const lower = message.toLowerCase();
+  if (lower.includes('drop')) return 'drop';
+  if (lower.includes('live')) return 'live';
+  return null;
+}
+
+function getNextWeekdayDate(currentTime, targetDayIndex) {
+  const currentDay = currentTime.getDay();
+  let diff = (targetDayIndex - currentDay + 7) % 7;
+  return addDays(currentTime, diff);
+}
+
+function parseDateFromMessage(message, currentTime) {
+  const lower = message.toLowerCase();
+
+  if (lower.includes('day after tomorrow')) {
+    return getDateString(addDays(currentTime, 2));
+  }
+
+  if (lower.includes('tomorrow')) {
+    return getDateString(addDays(currentTime, 1));
+  }
+
+  if (lower.includes('today')) {
+    return getDateString(currentTime);
+  }
+
+  const isoMatch = message.match(/\b\d{4}-\d{2}-\d{2}\b/);
+  if (isoMatch) {
+    return isoMatch[0];
+  }
+
+  const months = [
+    'january', 'february', 'march', 'april', 'may', 'june',
+    'july', 'august', 'september', 'october', 'november', 'december'
+  ];
+  const monthRegex = new RegExp(`\\b(${months.join('|')})\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:,\\s*(\\d{4}))?`, 'i');
+  const monthMatch = message.match(monthRegex);
+  if (monthMatch) {
+    const [, monthName, dayStr, yearStr] = monthMatch;
+    const monthIndex = months.indexOf(monthName.toLowerCase());
+    const year = yearStr ? parseInt(yearStr, 10) : currentTime.getFullYear();
+    const parsedDate = new Date(year, monthIndex, parseInt(dayStr, 10));
+    if (!Number.isNaN(parsedDate.getTime())) {
+      return getDateString(parsedDate);
+    }
+  }
+
+  const weekdays = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  const weekdayRegex = /\b(next\s+)?(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/i;
+  const weekdayMatch = message.match(weekdayRegex);
+  if (weekdayMatch) {
+    const [, nextKeyword, weekdayName] = weekdayMatch;
+    const targetIndex = weekdays.indexOf(weekdayName.toLowerCase());
+    let targetDate = getNextWeekdayDate(currentTime, targetIndex);
+    if (nextKeyword) {
+      targetDate = addDays(targetDate, 7);
+    }
+    return getDateString(targetDate);
+  }
+
+  return null;
+}
+
+function parseHourFromMessage(message) {
+  const lower = message.toLowerCase();
+
+  const namedTimes = [
+    { keywords: ['midnight'], hour: 0 },
+    { keywords: ['noon'], hour: 12 },
+    { keywords: ['morning'], hour: 9 },
+    { keywords: ['afternoon'], hour: 15 },
+    { keywords: ['evening'], hour: 18 },
+    { keywords: ['night'], hour: 20 }
+  ];
+
+  for (const entry of namedTimes) {
+    if (entry.keywords.some(keyword => lower.includes(keyword))) {
+      return entry.hour;
+    }
+  }
+
+  const timeRegex = /(?:at\s*)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?/i;
+  const match = message.match(timeRegex);
+
+  if (!match) return null;
+
+  let hour = parseInt(match[1], 10);
+  const minutes = match[2] ? parseInt(match[2], 10) : 0;
+  const meridiem = match[3]?.toLowerCase();
+
+  if (meridiem === 'pm' && hour < 12) {
+    hour += 12;
+  } else if (meridiem === 'am' && hour === 12) {
+    hour = 0;
+  }
+
+  if (!meridiem && hour <= 7) {
+    hour += 12;
+  }
+
+  if (minutes >= 30) {
+    hour = (hour + 1) % 24;
+  }
+
+  return hour >= 0 && hour <= 23 ? hour : null;
+}
+
+async function handleRateLimitFallback(userMessage, vendorInfo, currentTime) {
+  const actionType = detectAction(userMessage);
+
+  if (!actionType) {
+    return {
+      type: 'error',
+      message: 'OpenAI rate limit exceeded and I could not understand your request. Please rephrase or try again shortly.'
+    };
+  }
+
+  const intent = {
+    vendor_name: vendorInfo.name,
+    vendor_email: vendorInfo.email
+  };
+
+  if (actionType === 'query_availability') {
+    intent.action = 'query';
+    intent.query_type = 'availability';
+    intent.date = parseDateFromMessage(userMessage, currentTime);
+    if (!intent.date) {
+      return {
+        type: 'clarification',
+        message: 'I reached the AI rate limit. Please specify the date you want to check availability for (e.g., 2025-01-15).'
+      };
+    }
+    return handleQueryAction(intent, vendorInfo);
+  }
+
+  if (actionType === 'query_my') {
+    intent.action = 'query';
+    intent.query_type = 'my_appointments';
+    return handleQueryAction(intent, vendorInfo);
+  }
+
+  if (actionType === 'delete') {
+    intent.action = 'delete';
+    return executeAction(intent, vendorInfo);
+  }
+
+  if (actionType === 'update' || actionType === 'create') {
+    const date = parseDateFromMessage(userMessage, currentTime);
+    const hour = parseHourFromMessage(userMessage);
+    let type = parseAppointmentType(userMessage);
+
+    if (!type) {
+      type = 'live';
+    }
+
+    if (!date || hour === null) {
+      return {
+        type: 'clarification',
+        message: 'I hit the AI rate limit. Please specify the date (YYYY-MM-DD) and hour (0-23) for the appointment.'
+      };
+    }
+
+    intent.action = actionType === 'create' ? 'create' : 'update';
+    intent.date = date;
+    intent.hour = hour;
+    intent.type = type;
+
+    return executeAction(intent, vendorInfo);
+  }
+
+  return {
+    type: 'error',
+    message: 'Rate limit exceeded and I could not complete your request. Please try again shortly.'
+  };
+}
+
+export async function processUserMessage(userMessage, conversationHistory, vendorInfo) {
+  const currentTime = getISTDate();
+  const historyForTrace = (conversationHistory || []).map(entry => ({
+    role: entry.role,
+    content: entry.content
+  }));
+  const messages = [
+    { role: 'system', content: getSystemPrompt(currentTime) },
+    ...getFewShotExamples(currentTime),
+    ...conversationHistory,
+    {
+      role: 'user',
+      content: `Vendor Info: Name: ${vendorInfo.name}, Email: ${vendorInfo.email}\n\nUser Request: ${userMessage}`
+    }
+  ];
+
+  const langfuseClient = getLangfuseClient();
+  const trace = langfuseClient?.trace({
+    name: 'appointment_chat',
+    userId: vendorInfo.email,
+    sessionId: vendorInfo.email,
+    metadata: {
+      vendorName: vendorInfo.name
+    },
+    input: {
+      message: userMessage,
+      vendorInfo,
+      conversationHistory: historyForTrace
+    }
+  });
+ 
+  trace?.event({
+    name: 'llm_messages',
+    metadata: { messages }
+  });
+
+  const finishTrace = (result, metadata = {}) => {
+    if (trace) {
+      trace.update({
+        output: result,
+        metadata: {
+          responseType: result?.type,
+          ...metadata
+        }
+      });
+      trace.end();
+    }
+    return result;
+  };
+
+  let modelSpan;
+
+  try {
+    const client = getOpenAIClient();
+    const model = process.env.OPENAI_MODEL || 'gpt-3.5-turbo';
+
+    modelSpan = trace?.span({
+      name: 'openai.chat.completions',
+      input: { model, messages }
+    });
+
+    const completion = await client.chat.completions.create({
+      model,
+      messages,
+      temperature: 0.3,
+      response_format: { type: 'json_object' }
+    });
+
+    modelSpan?.update({
+      output: completion,
+      endTime: new Date()
+    });
+
+    const response = completion.choices[0].message.content;
+    let parsedResponse;
+
+    try {
+      parsedResponse = JSON.parse(response);
+    } catch (e) {
+      return finishTrace(
+        {
+          type: 'clarification',
+          message: response
+        },
+        { clarificationReason: 'invalid_json' }
+      );
+    }
+
+    trace?.event({
+      name: 'parsed_intent',
+      metadata: parsedResponse
+    });
+
+    if (!parsedResponse.action || !['create', 'update', 'delete', 'query'].includes(parsedResponse.action)) {
+      return finishTrace(
+        {
+          type: 'clarification',
+          message: response
+        },
+        { clarificationReason: 'missing_action' }
+      );
+    }
+
+    let result;
+    if (parsedResponse.action === 'query') {
+      result = await handleQueryAction(parsedResponse, vendorInfo);
+    } else {
+      result = await executeAction(parsedResponse, vendorInfo);
+    }
+
+    return finishTrace(result);
+  } catch (error) {
+    modelSpan?.update({
+      output: {
+        error: error.message,
+        code: error.code,
+        status: error.status
+      },
+      endTime: new Date()
+    });
+
+    console.error('LLM Error:', error);
+    console.error('Error details:', {
+      message: error.message,
+      code: error.code,
+      status: error.status,
+      type: error.type
+    });
+
+    let errorMessage = 'I encountered an error processing your request.';
+    const metadata = { errorCode: error.code, status: error.status };
+
+    if (error.code === 'model_not_found' || error.message?.includes('model')) {
+      errorMessage = 'The AI model is not available. Please check your OpenAI API key and model access.';
+    } else if (error.message?.includes('API key')) {
+      errorMessage = 'OpenAI API key is invalid or missing. Please check your configuration.';
+    } else if (error.status === 429) {
+      const fallback = await handleRateLimitFallback(userMessage, vendorInfo, currentTime);
+      if (fallback) {
+        return finishTrace(fallback, { ...metadata, fallback: 'rate_limit' });
+      }
+      errorMessage = 'Rate limit exceeded. Please try again in a moment.';
+    } else if (error.status === 401) {
+      errorMessage = 'Authentication failed. Please check your OpenAI API key.';
+    }
+
+    const errorResult = {
+      type: 'error',
+      message: errorMessage,
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    };
+
+    return finishTrace(errorResult, metadata);
+  }
+}
