@@ -1,5 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
 import { isPastDate } from '../utils/dateUtils.js';
+import {
+  sendAppointmentCancellationEmail,
+  sendAppointmentConfirmationEmail,
+  sendAppointmentRescheduleEmail
+} from './emailService.js';
 
 // Lazy initialization of Supabase client
 let supabase = null;
@@ -19,7 +24,7 @@ function getSupabaseClient() {
 }
 
 function generateTrackingCode() {
-  return Math.floor(1000000 + Math.random() * 9000000).toString();
+  return Math.floor(10000000 + Math.random() * 90000000).toString();
 }
 
 async function generateUniqueTrackingCode(client, maxAttempts = 5) {
@@ -149,6 +154,19 @@ export async function createAppointment(appointmentData) {
     throw error;
   }
 
+  try {
+    await sendAppointmentConfirmationEmail({
+      recipientEmail: vendor_email,
+      recipientName: vendor_name,
+      appointmentDate: date,
+      appointmentHour: hour,
+      appointmentType: type,
+      trackingCode: data.tracking_code
+    });
+  } catch (emailError) {
+    console.error('Failed to send confirmation email:', emailError);
+  }
+
   return data;
 }
 
@@ -235,7 +253,22 @@ export async function updateAppointmentByTrackingCode(trackingCode, newDate, new
     throw new Error('Appointment not found for the provided tracking code');
   }
 
-  return updateAppointment(appointment.id, newDate, newHour);
+  const updatedAppointment = await updateAppointment(appointment.id, newDate, newHour);
+
+  try {
+    await sendAppointmentRescheduleEmail({
+      recipientEmail: appointment.vendor_email,
+      recipientName: appointment.vendor_name,
+      appointmentDate: newDate,
+      appointmentHour: newHour,
+      appointmentType: appointment.type,
+      trackingCode: appointment.tracking_code
+    });
+  } catch (emailError) {
+    console.error('Failed to send reschedule email:', emailError);
+  }
+
+  return updatedAppointment;
 }
 
 export async function deleteAppointmentByTrackingCode(trackingCode) {
@@ -245,7 +278,19 @@ export async function deleteAppointmentByTrackingCode(trackingCode) {
     throw new Error('Appointment not found for the provided tracking code');
   }
 
-  return deleteAppointment(appointment.id);
+  const deletedAppointment = await deleteAppointment(appointment.id);
+
+  try {
+    await sendAppointmentCancellationEmail({
+      recipientEmail: appointment.vendor_email,
+      recipientName: appointment.vendor_name,
+      trackingCode: appointment.tracking_code
+    });
+  } catch (emailError) {
+    console.error('Failed to send cancellation email:', emailError);
+  }
+
+  return deletedAppointment;
 }
 
 export async function findNextAvailableSlot(date, hour, type) {
