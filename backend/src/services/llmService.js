@@ -66,10 +66,10 @@ When user provides a request:
      "date": "YYYY-MM-DD",
      "hour": 0-23,
      "type": "live" | "drop",
+     "tracking_code": "8-digit string (required for update/delete)",
      "vendor_name": "string",
      "vendor_email": "string",
      "carrier_name": "string",
-     "appointment_id": "uuid (for update/delete)",
      "query_type": "my_appointments" | "availability" (for query action)
    }
 
@@ -149,6 +149,7 @@ function getFewShotExamples(currentTime = getISTDate()) {
         date: getDateString(inTwoDays),
         hour: 17,
         type: 'live',
+        tracking_code: '12345678',
         vendor_name: 'ABC Logistics',
         vendor_email: 'abc@example.com',
         carrier_name: 'ABC Carrier'
@@ -162,9 +163,7 @@ function getFewShotExamples(currentTime = getISTDate()) {
       role: 'assistant',
       content: JSON.stringify({
         action: 'delete',
-        date: getDateString(tomorrow),
-        hour: 21,
-        type: 'drop',
+        tracking_code: '87654321',
         vendor_name: 'ABC Logistics',
         vendor_email: 'abc@example.com',
         carrier_name: 'ABC Carrier'
@@ -230,39 +229,35 @@ async function executeAction(intent, vendorInfo) {
         break;
 
       case 'update':
-        if (!intent.appointment_id) {
-          // Need to find the appointment first
-          const appointments = await appointmentService.getUserAppointments(vendorInfo.email);
-          if (appointments.length === 0) {
-            return {
-              type: 'error',
-              message: 'You have no appointments to reschedule.'
-            };
-          }
-          // Use the first appointment or ask user to specify
-          intent.appointment_id = appointments[0].id;
+        if (!intent.tracking_code) {
+          return {
+            type: 'clarification',
+            message: 'Please provide the 8-digit tracking ID so I can reschedule the correct appointment.'
+          };
         }
-        result = await appointmentService.updateAppointment(
-          intent.appointment_id,
+        if (!intent.date || intent.hour === undefined || intent.hour === null) {
+          return {
+            type: 'clarification',
+            message: 'To reschedule, let me know the new date (YYYY-MM-DD) and time (hour in 0-23).'
+          };
+        }
+        result = await appointmentService.updateAppointmentByTrackingCode(
+          intent.tracking_code,
           intent.date,
           intent.hour
         );
-        message = `✅ Successfully rescheduled your appointment to ${formatDateForDisplay(intent.date)} at ${intent.hour}:00 IST.`;
+        message = `✅ Successfully rescheduled appointment ${intent.tracking_code} to ${formatDateForDisplay(intent.date)} at ${intent.hour}:00 IST.`;
         break;
 
       case 'delete':
-        if (!intent.appointment_id) {
-          const appointments = await appointmentService.getUserAppointments(vendorInfo.email);
-          if (appointments.length === 0) {
-            return {
-              type: 'error',
-              message: 'You have no appointments to cancel.'
-            };
-          }
-          intent.appointment_id = appointments[0].id;
+        if (!intent.tracking_code) {
+          return {
+            type: 'clarification',
+            message: 'Please share the 8-digit tracking ID so I can cancel the right appointment.'
+          };
         }
-        result = await appointmentService.deleteAppointment(intent.appointment_id);
-        message = `✅ Successfully canceled your appointment.`;
+        result = await appointmentService.deleteAppointmentByTrackingCode(intent.tracking_code);
+        message = `✅ Successfully canceled appointment ${intent.tracking_code}.`;
         break;
 
       default:
@@ -525,6 +520,11 @@ function parseHourFromMessage(message) {
   return hour >= 0 && hour <= 23 ? hour : null;
 }
 
+function extractTrackingCode(message) {
+  const match = message.match(/\b(\d{8})\b/);
+  return match ? match[1] : null;
+}
+
 async function handleRateLimitFallback(userMessage, vendorInfo, currentTime) {
   const actionType = detectAction(userMessage);
 
@@ -561,6 +561,14 @@ async function handleRateLimitFallback(userMessage, vendorInfo, currentTime) {
 
   if (actionType === 'delete') {
     intent.action = 'delete';
+    const trackingCode = extractTrackingCode(userMessage);
+    if (!trackingCode) {
+      return {
+        type: 'clarification',
+        message: 'I hit the AI rate limit. Please share the 8-digit tracking ID for the appointment you want to cancel.'
+      };
+    }
+    intent.tracking_code = trackingCode;
     return executeAction(intent, vendorInfo);
   }
 
@@ -584,6 +592,16 @@ async function handleRateLimitFallback(userMessage, vendorInfo, currentTime) {
     intent.date = date;
     intent.hour = hour;
     intent.type = type;
+    if (actionType === 'update') {
+      const trackingCode = extractTrackingCode(userMessage);
+      if (!trackingCode) {
+        return {
+          type: 'clarification',
+          message: 'I hit the AI rate limit. Please include the 8-digit tracking ID along with the new date and time.'
+        };
+      }
+      intent.tracking_code = trackingCode;
+    }
 
     return executeAction(intent, vendorInfo);
   }
