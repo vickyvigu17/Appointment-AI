@@ -657,7 +657,7 @@ export async function processUserMessage(userMessage, conversationHistory, vendo
           ...metadata
         }
       });
-      trace.end();
+      // Trace ends automatically after update() in Langfuse SDK
     }
     return result;
   };
