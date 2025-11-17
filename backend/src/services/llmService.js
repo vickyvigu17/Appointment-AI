@@ -75,6 +75,14 @@ When user provides a request:
 
 Always confirm the carrier name (e.g., "MKTTC") before finalizing booking, update, or cancel actions.
 
+CONTEXT AWARENESS - Follow-up Conversations:
+- When user asks to "show my appointments" or "my appointments", you will receive a list of appointments with their details
+- In follow-up messages, if user refers to an appointment (e.g., "change that to 1pm", "reschedule the first one", "cancel the appointment on Tuesday"), you MUST extract the tracking_code from the conversation history
+- Look for tracking codes (8-digit numbers) in previous assistant messages in the conversation history
+- If user mentions a date/time from a previously shown appointment, match it to get the tracking_code
+- For reschedule/update: If tracking_code is in conversation history, use it. Only ask for tracking_code if it's truly not available in the conversation
+- For delete/cancel: Same rule - extract tracking_code from conversation history when possible
+
 2. If the request is ambiguous or missing information, ask a clarifying question in natural language.
 
 3. For date references:
@@ -206,6 +214,58 @@ function getFewShotExamples(currentTime = getISTDate()) {
       content: JSON.stringify({
         message: 'Evening is ambiguous. Please specify the hour (0-23).'
       })
+    },
+    {
+      role: 'user',
+      content: `Vendor Info: Name: ABC Logistics, Email: abc@example.com, Carrier: ABC Carrier\n\nUser Request: Show my appointments`
+    },
+    {
+      role: 'assistant',
+      content: JSON.stringify({
+        action: 'query',
+        query_type: 'my_appointments',
+        vendor_name: 'ABC Logistics',
+        vendor_email: 'abc@example.com',
+        carrier_name: 'ABC Carrier'
+      })
+    },
+    {
+      role: 'assistant',
+      content: 'Your appointments:\n- Tuesday, November 18, 2025 at 10:00 (live) - Tracking ID: 30238322\n- Friday, November 21, 2025 at 15:00 (drop) - Tracking ID: 87654321'
+    },
+    {
+      role: 'user',
+      content: `Vendor Info: Name: ABC Logistics, Email: abc@example.com, Carrier: ABC Carrier\n\nUser Request: Change the first one to 1pm`
+    },
+    {
+      role: 'assistant',
+      content: JSON.stringify({
+        action: 'update',
+        date: '2025-11-18',
+        hour: 13,
+        type: 'live',
+        tracking_code: '30238322',
+        vendor_name: 'ABC Logistics',
+        vendor_email: 'abc@example.com',
+        carrier_name: 'ABC Carrier'
+      })
+    },
+    {
+      role: 'user',
+      content: `Vendor Info: Name: ABC Logistics, Email: abc@example.com, Carrier: ABC Carrier\n\nUser Request: Reschedule the appointment on Tuesday to 2pm`
+    },
+    {
+      role: 'assistant',
+      content: JSON.stringify({
+        action: 'update',
+        date: '2025-11-18',
+        hour: 14,
+        type: 'live',
+        tracking_code: '30238322',
+        vendor_name: 'ABC Logistics',
+        vendor_email: 'abc@example.com',
+        carrier_name: 'ABC Carrier'
+      })
     }
   ];
 }
@@ -321,12 +381,14 @@ async function handleQueryAction(intent, vendorInfo) {
           message: 'You have no upcoming appointments.'
         };
       }
+      // Include tracking codes in the response so LLM can reference them in follow-ups
       const list = appointments.map(apt => 
-        `- ${formatDateForDisplay(apt.date)} at ${apt.hour}:00 (${apt.type})`
+        `- ${formatDateForDisplay(apt.date)} at ${apt.hour}:00 (${apt.type}) - Tracking ID: ${apt.tracking_code}`
       ).join('\n');
       return {
         type: 'info',
-        message: `Your appointments:\n${list}`
+        message: `Your appointments:\n${list}`,
+        data: appointments // Include full appointment data for context
       };
     }
 
@@ -681,7 +743,7 @@ export async function processUserMessage(userMessage, conversationHistory, vendo
     const completion = await client.chat.completions.create({
       model,
       messages,
-      temperature: 0.3,
+      temperature: 0,
       response_format: { type: 'json_object' }
     });
 

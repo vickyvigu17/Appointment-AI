@@ -52,9 +52,11 @@ router.post('/chat', async (req, res) => {
     }
 
     // Update conversation history
+    // Store both the structured response and the human-readable message for better context
+    const assistantContent = response.message || JSON.stringify(response);
     history.push(
       { role: 'user', content: message },
-      { role: 'assistant', content: JSON.stringify(response) }
+      { role: 'assistant', content: assistantContent }
     );
     conversationHistory.set(historyKey, history.slice(-10)); // Keep last 10 messages
 
