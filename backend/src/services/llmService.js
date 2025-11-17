@@ -665,6 +665,11 @@ export async function processUserMessage(userMessage, conversationHistory, vendo
   let modelSpan;
 
   try {
+    // Validate OpenAI API key before attempting to call
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY must be set in environment variables');
+    }
+
     const client = getOpenAIClient();
     const model = process.env.OPENAI_MODEL || 'gpt-3.5-turbo';
 
@@ -738,24 +743,34 @@ export async function processUserMessage(userMessage, conversationHistory, vendo
       message: error.message,
       code: error.code,
       status: error.status,
-      type: error.type
+      type: error.type,
+      name: error.name
     });
+    if (error.stack) {
+      console.error('Error stack:', error.stack);
+    }
 
     let errorMessage = 'I encountered an error processing your request.';
     const metadata = { errorCode: error.code, status: error.status };
 
     if (error.code === 'model_not_found' || error.message?.includes('model')) {
       errorMessage = 'The AI model is not available. Please check your OpenAI API key and model access.';
-    } else if (error.message?.includes('API key')) {
+    } else if (error.message?.includes('API key') || error.message?.includes('OPENAI_API_KEY')) {
       errorMessage = 'OpenAI API key is invalid or missing. Please check your configuration.';
-    } else if (error.status === 429) {
-      const fallback = await handleRateLimitFallback(userMessage, vendorInfo, currentTime);
-      if (fallback) {
-        return finishTrace(fallback, { ...metadata, fallback: 'rate_limit' });
+    } else if (error.status === 429 || error.code === 'rate_limit_exceeded') {
+      try {
+        const fallback = await handleRateLimitFallback(userMessage, vendorInfo, currentTime);
+        if (fallback) {
+          return finishTrace(fallback, { ...metadata, fallback: 'rate_limit' });
+        }
+      } catch (fallbackError) {
+        console.error('Fallback handler error:', fallbackError);
       }
       errorMessage = 'Rate limit exceeded. Please try again in a moment.';
-    } else if (error.status === 401) {
+    } else if (error.status === 401 || error.code === 'invalid_api_key') {
       errorMessage = 'Authentication failed. Please check your OpenAI API key.';
+    } else if (error.message?.includes('network') || error.message?.includes('ECONNREFUSED') || error.message?.includes('ETIMEDOUT')) {
+      errorMessage = 'Network error connecting to AI service. Please check your internet connection and try again.';
     }
 
     const errorResult = {

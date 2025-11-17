@@ -115,9 +115,23 @@ function ChatInterface({ vendorInfo, onVendorInfoUpdate, onAppointmentUpdate }) 
         onAppointmentUpdate();
       }
     } catch (error) {
+      console.error('Chat error:', error);
+      // Extract error message from various possible locations
+      let errorMessage = 'Failed to send message. Please try again.';
+      
+      if (error.message) {
+        errorMessage = error.message;
+      } else if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.response?.data?.error) {
+        errorMessage = error.response.data.error;
+      } else if (error.data?.message) {
+        errorMessage = error.data.message;
+      }
+      
       setMessages(prev => [...prev, {
         type: 'error',
-        text: error.response?.data?.message || 'Failed to send message. Please try again.',
+        text: errorMessage,
         timestamp: new Date()
       }]);
     } finally {
