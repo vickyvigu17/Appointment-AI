@@ -76,11 +76,11 @@ When user provides a request:
 Always confirm the carrier name (e.g., "MKTTC") before finalizing booking, update, or cancel actions.
 
 CONTEXT AWARENESS - Follow-up Conversations:
-- When user asks to "show my appointments" or "my appointments", you will receive a list of appointments with their details
+- When user asks to "show my appointments" or "my appointments", you will receive a list of appointments with their details (shown as "Appointment ID" to users)
 - In follow-up messages, if user refers to an appointment (e.g., "change that to 1pm", "reschedule the first one", "cancel the appointment on Tuesday"), you MUST extract the tracking_code from the conversation history
-- Look for tracking codes (8-digit numbers) in previous assistant messages in the conversation history
+- Look for Appointment IDs (8-digit numbers) in previous assistant messages in the conversation history (they appear as "Appointment ID: XXXXXXXX")
 - If user mentions a date/time from a previously shown appointment, match it to get the tracking_code
-- For reschedule/update: If tracking_code is in conversation history, use it. Only ask for tracking_code if it's truly not available in the conversation
+- For reschedule/update: If tracking_code is in conversation history, use it. Only ask for Appointment ID if it's truly not available in the conversation
 - For delete/cancel: Same rule - extract tracking_code from conversation history when possible
 
 2. If the request is ambiguous or missing information, ask a clarifying question in natural language.
@@ -231,7 +231,7 @@ function getFewShotExamples(currentTime = getISTDate()) {
     },
     {
       role: 'assistant',
-      content: 'Your appointments:\n- Tuesday, November 18, 2025 at 10:00 (live) - Tracking ID: 30238322\n- Friday, November 21, 2025 at 15:00 (drop) - Tracking ID: 87654321'
+      content: 'Your appointments:\n- Tuesday, November 18, 2025 at 10:00 (live) - Appointment ID: 30238322\n- Friday, November 21, 2025 at 15:00 (drop) - Appointment ID: 87654321'
     },
     {
       role: 'user',
@@ -292,7 +292,7 @@ async function executeAction(intent, vendorInfo) {
         if (!intent.tracking_code) {
           return {
             type: 'clarification',
-            message: 'Please provide the 8-digit tracking ID so I can reschedule the correct appointment.'
+            message: 'Please provide the 8-digit Appointment ID so I can reschedule the correct appointment.'
           };
         }
         if (!intent.date || intent.hour === undefined || intent.hour === null) {
@@ -313,7 +313,7 @@ async function executeAction(intent, vendorInfo) {
         if (!intent.tracking_code) {
           return {
             type: 'clarification',
-            message: 'Please share the 8-digit tracking ID so I can cancel the right appointment.'
+            message: 'Please share the 8-digit Appointment ID so I can cancel the right appointment.'
           };
         }
         result = await appointmentService.deleteAppointmentByTrackingCode(intent.tracking_code);
@@ -383,7 +383,7 @@ async function handleQueryAction(intent, vendorInfo) {
       }
       // Include tracking codes in the response so LLM can reference them in follow-ups
       const list = appointments.map(apt => 
-        `- ${formatDateForDisplay(apt.date)} at ${apt.hour}:00 (${apt.type}) - Tracking ID: ${apt.tracking_code}`
+        `- ${formatDateForDisplay(apt.date)} at ${apt.hour}:00 (${apt.type}) - Appointment ID: ${apt.tracking_code}`
       ).join('\n');
       return {
         type: 'info',
@@ -627,7 +627,7 @@ async function handleRateLimitFallback(userMessage, vendorInfo, currentTime) {
     if (!trackingCode) {
       return {
         type: 'clarification',
-        message: 'I hit the AI rate limit. Please share the 8-digit tracking ID for the appointment you want to cancel.'
+        message: 'I hit the AI rate limit. Please share the 8-digit Appointment ID for the appointment you want to cancel.'
       };
     }
     intent.tracking_code = trackingCode;
@@ -659,7 +659,7 @@ async function handleRateLimitFallback(userMessage, vendorInfo, currentTime) {
       if (!trackingCode) {
         return {
           type: 'clarification',
-          message: 'I hit the AI rate limit. Please include the 8-digit tracking ID along with the new date and time.'
+          message: 'I hit the AI rate limit. Please include the 8-digit Appointment ID along with the new date and time.'
         };
       }
       intent.tracking_code = trackingCode;
